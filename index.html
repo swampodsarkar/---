@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>সেবা খুঁজুন - আপনার প্রয়োজনীয় সেবা খুঁজে নিন</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, setDoc, updateDoc, getDoc, query, where } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAjMuTTJtsvr5i9xAqzQuULciJrEkUCtgg",
+            authDomain: "sheba-khujun.firebaseapp.com",
+            projectId: "sheba-khujun",
+            storageBucket: "sheba-khujun.appspot.com",
+            messagingSenderId: "596961253953",
+            appId: "1:596961253953:web:370090c78cca43cdc9c4c0",
+            measurementId: "G-KTFBTHVRXG"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Global variables
+        let currentUser = null;
+        let isLoggedIn = false;
+        let userType = null;
+
+        // Auth state observer
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                isLoggedIn = true;
+                // Check user type
+                getDoc(doc(db, "users", user.uid)).then((docSnap) => {
+                    if (docSnap.exists()) {
+                        userType = docSnap.data().type;
+                        updateUI();
+                    }
+                });
+            } else {
+                currentUser = null;
+                isLoggedIn = false;
+                userType = null;
+                updateUI();
+            }
+        });
+
+        // Update UI based on auth state
+        function updateUI() {
+            const loginBtn = document.getElementById('loginBtn');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const registerBtn = document.getElementById('registerBtn');
+            const providerBtn = document.getElementById('providerBtn');
+            const profileBtn = document.getElementById('profileBtn');
+
+            if (isLoggedIn) {
+                loginBtn.classList.add('hidden');
+                registerBtn.classList.add('hidden');
+                logoutBtn.classList.remove('hidden');
+                profileBtn.classList.remove('hidden');
+                
+                if (userType === 'provider') {
+                    providerBtn.classList.remove('hidden');
+                } else {
+                    providerBtn.classList.add('hidden');
+                }
+            } else {
+                loginBtn.classList.remove('hidden');
+                registerBtn.classList.remove('hidden');
+                logoutBtn.classList.add('hidden');
+                profileBtn.classList.add('hidden');
+                providerBtn.classList.add('hidden');
+            }
+        }
+
+        // Register functions
+        window.registerUser = async (type) => {
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            const phone = document.getElementById('registerPhone').value;
+            const name = document.getElementById('registerName').value;
+
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                await setDoc(doc(db, "users", userCredential.user.uid), {
+                    name: name,
+                    email: email,
+                    phone: phone,
+                    type: type,
+                    createdAt: new Date()
+                });
+
+                if (type === 'provider') {
+                    await setDoc(doc(db, "providers", userCredential.user.uid), {
+                        name: name,
+                        email: email,
+                        phone: phone,
+                        verified: false,
+                        services: [],
+                        rating: 0,
+                        reviews: [],
+                        profileViews: 0,
+                        contactClicks: 0
+                    });
+                } else {
+                    await setDoc(doc(db, "buyers", userCredential.user.uid), {
+                        name: name,
+                        email: email,
+                        phone: phone
+                    });
+                }
+
+                alert('Registration successful!');
+                document.getElementById('registerModal').classList.add('hidden');
+            } catch (error) {
+                alert(error.message);
+            }
+        };
+
+        // Login function
+        window.loginUser = async () => {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                document.getElementById('loginModal').classList.add('hidden');
+            } catch (error) {
+                alert(error.message);
+            }
+        };
+
+        // Logout function
+        window.logoutUser = async () => {
+            try {
+                await signOut(auth);
+            } catch (error) {
+                alert(error.message);
+            }
+        };
+
+        // Load categories
+        window.loadCategories = async () => {
+            const categoriesContainer = document.getElementById('categories');
+            const querySnapshot = await getDocs(collection(db, "categories"));
+            
+            categoriesContainer.innerHTML = '';
+            querySnapshot.forEach((doc) => {
+                const category = doc.data();
+                categoriesContainer.innerHTML += `
+                    <div class="bg-white rounded-lg shadow-md p-4 cursor-pointer hover:shadow-lg transition-shadow">
+                        <div class="text-center">
+                            <i class="${category.icon} text-3xl text-blue-500 mb-2"></i>
+                            <h3 class="font-semibold">${category.name}</h3>
+                        </div>
+                    </div>
+                `;
+            });
+        };
+
+        // Load popular services
+        window.loadPopularServices = async () => {
+            const servicesContainer = document.getElementById('popularServices');
+            const q = query(collection(db, "providers"), where("verified", "==", true));
+            const querySnapshot = await getDocs(q);
+            
+            servicesContainer.innerHTML = '';
+            querySnapshot.forEach((doc) => {
+                const provider = doc.data();
+                servicesContainer.innerHTML += `
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                        <div class="p-4">
+                            <div class="flex items-center mb-3">
+                                <div class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                                    ${provider.photoURL ? `<img src="${provider.photoURL}" alt="${provider.name}" class="w-full h-full object-cover">` : 
+                                    `<i class="fas fa-user text-gray-500 text-xl"></i>`}
+                                </div>
+                                <div class="ml-3">
+                                    <h3 class="font-semibold">${provider.name}</h3>
+                                    ${provider.verified ? `<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Verified</span>` : ''}
+                                </div>
+                            </div>
+                            <p class="text-gray-600 text-sm mb-3">${provider.services.join(', ')}</p>
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center">
+                                    <i class="fas fa-star text-yellow-400 mr-1"></i>
+                                    <span>${provider.rating.toFixed(1)}</span>
+                                </div>
+                                <button onclick="viewProvider('${doc.id}')" class="text-blue-500 text-sm font-medium">View Profile</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        };
+
+        // View provider profile
+        window.viewProvider = async (providerId) => {
+            const providerDoc = await getDoc(doc(db, "providers", providerId));
+            if (providerDoc.exists()) {
+                const provider = providerDoc.data();
+                const providerModal = document.getElementById('providerModal');
+                
+                // Update view count
+                await updateDoc(doc(db, "providers", providerId), {
+                    profileViews: (provider.profileViews || 0) + 1
+                });
+
+                // Populate modal
+                document.getElementById('providerName').textContent = provider.name;
+                document.getElementById('providerRating').innerHTML = `
+                    <i class="fas fa-star text-yellow-400"></i> ${provider.rating.toFixed(1)} (${provider.reviews.length} reviews)
+                `;
+                document.getElementById('providerServices').textContent = provider.services.join(', ');
+                document.getElementById('providerDescription').textContent = provider.description || 'No description provided';
+                document.getElementById('providerViews').textContent = provider.profileViews || 0;
+                
+                // Contact buttons
+                const contactButtons = document.getElementById('providerContactButtons');
+                contactButtons.innerHTML = `
+                    <button onclick="contactProvider('${providerId}', 'call')" class="bg-green-500 text-white px-4 py-2 rounded-lg flex items-center ${!isLoggedIn ? 'opacity-50 cursor-not-allowed' : ''}">
+                        <i class="fas fa-phone mr-2"></i> Call
+                    </button>
+                    <button onclick="contactProvider('${providerId}', 'message')" class="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center ${!isLoggedIn ? 'opacity-50 cursor-not-allowed' : ''}">
+                        <i class="fas fa-envelope mr-2"></i> Message
+                    </button>
+                    <button onclick="contactProvider('${providerId}', 'whatsapp')" class="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center ${!isLoggedIn ? 'opacity-50 cursor-not-allowed' : ''}">
+                        <i class="fab fa-whatsapp mr-2"></i> WhatsApp
+                    </button>
+                `;
+
+                providerModal.classList.remove('hidden');
+            }
+        };
+
+        // Contact provider
+        window.contactProvider = async (providerId, method) => {
+            if (!isLoggedIn) {
+                alert('Please login to contact service providers');
+                document.getElementById('loginModal').classList.remove('hidden');
+                return;
+            }
+
+            // Update contact clicks
+            const providerDoc = await getDoc(doc(db, "providers", providerId));
+            if (providerDoc.exists()) {
+                const provider = providerDoc.data();
+                await updateDoc(doc(db, "providers", providerId), {
+                    contactClicks: (provider.contactClicks || 0) + 1
+                });
+            }
+
+            // Simulate contact action
+            alert(`You have chosen to contact via ${method}. In a real app, this would initiate the ${method} action.`);
+        };
+
+        // Close modal
+        window.closeModal = (modalId) => {
+            document.getElementById(modalId).classList.add('hidden');
+        };
+
+        // Toggle modal
+        window.toggleModal = (modalId) => {
+            document.getElementById(modalId).classList.toggle('hidden');
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCategories();
+            loadPopularServices();
+        });
+    </script>
+    <style>
+        .banner {
+            background-image: url('https://via.placeholder.com/1920x600');
+            background-size: cover;
+            background-position: center;
+        }
+        .modal {
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Header -->
+    <header class="bg-white shadow-sm">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center">
+                <h1 class="text-2xl font-bold text-blue-600">সেবা খুঁজুন</h1>
+            </div>
+            <nav class="hidden md:flex space-x-6">
+                <a href="#" class="text-gray-700 hover:text-blue-600">হোম</a>
+                <a href="#" class="text-gray-700 hover:text-blue-600">সেবা সমূহ</a>
+                <a href="#" class="text-gray-700 hover:text-blue-600">প্রোভাইডার</a>
+                <a href="#" class="text-gray-700 hover:text-blue-600">যোগাযোগ</a>
+            </nav>
+            <div class="flex items-center space-x-4">
+                <button id="loginBtn" onclick="toggleModal('loginModal')" class="bg-blue-600 text-white px-4 py-2 rounded-lg">লগইন</button>
+                <button id="registerBtn" onclick="toggleModal('registerModal')" class="border border-blue-600 text-blue-600 px-4 py-2 rounded-lg">রেজিস্টার</button>
+                <button id="providerBtn" onclick="toggleModal('providerModal')" class="bg-green-600 text-white px-4 py-2 rounded-lg hidden">প্রোভাইডার প্যানেল</button>
+                <button id="profileBtn" onclick="toggleModal('profileModal')" class="bg-gray-200 px-4 py-2 rounded-lg hidden">
+                    <i class="fas fa-user"></i>
+                </button>
+                <button id="logoutBtn" onclick="logoutUser()" class="bg-red-600 text-white px-4 py-2 rounded-lg hidden">লগআউট</button>
+            </div>
+            <button class="md:hidden text-gray-700">
+                <i class="fas fa-bars text-xl"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Banner -->
+    <div class="banner h-64 flex items-center justify-center">
+        <div class="text-center bg-black bg-opacity-50 text-white p-6 rounded-lg">
+            <h2 class="text-3xl font-bold mb-4">আপনার প্রয়োজনীয় সেবা খুঁজে নিন</h2>
+            <div class="relative max-w-2xl mx-auto">
+                <input type="text" placeholder="সেবা নাম, লোকেশন বা ক্যাটাগরি লিখুন" class="w-full px-4 py-3 rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button class="absolute right-2 top-2 bg-blue-600 text-white px-4 py-1 rounded-lg">
+                    <i class="fas fa-search"></i> খুঁজুন
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        <!-- Categories -->
+        <section class="mb-12">
+            <h2 class="text-2xl font-bold mb-6">ক্যাটাগরি সমূহ</h2>
+            <div id="categories" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <!-- Categories will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Popular Services -->
+        <section class="mb-12">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">জনপ্রিয় সেবা সমূহ</h2>
+                <a href="#" class="text-blue-600">সব দেখুন</a>
+            </div>
+            <div id="popularServices" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <!-- Popular services will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Verified Providers -->
+        <section class="mb-12">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">ভেরিফাইড প্রোভাইডার</h2>
+                <a href="#" class="text-blue-600">সব দেখুন</a>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <!-- Verified providers will be loaded here -->
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white py-8">
+        <div class="container mx-auto px-4">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                <div>
+                    <h3 class="text-xl font-bold mb-4">সেবা খুঁজুন</h3>
+                    <p>আপনার প্রয়োজনীয় সেবা সহজেই খুঁজে নিন এবং সরাসরি যোগাযোগ করুন।</p>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-4">লিংক</h4>
+                    <ul class="space-y-2">
+                        <li><a href="#" class="hover:text-blue-400">হোম</a></li>
+                        <li><a href="#" class="hover:text-blue-400">সেবা সমূহ</a></li>
+                        <li><a href="#" class="hover:text-blue-400">প্রোভাইডার</a></li>
+                        <li><a href="#" class="hover:text-blue-400">যোগাযোগ</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-4">সেবা</h4>
+                    <ul class="space-y-2">
+                        <li><a href="#" class="hover:text-blue-400">সেবা খুঁজুন</a></li>
+                        <li><a href="#" class="hover:text-blue-400">প্রোভাইডার হন</a></li>
+                        <li><a href="#" class="hover:text-blue-400">সাহায্য</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-4">যোগাযোগ</h4>
+                    <ul class="space-y-2">
+                        <li><i class="fas fa-phone mr-2"></i> +880 1234 567890</li>
+                        <li><i class="fas fa-envelope mr-2"></i> info@shebakhujun.com</li>
+                        <li><i class="fas fa-map-marker-alt mr-2"></i> ঢাকা, বাংলাদেশ</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="border-t border-gray-700 mt-8 pt-6 text-center">
+                <p>&copy; 2023 সেবা খুঁজুন. সকল স্বত্ব সংরক্ষিত।</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">লগইন</h3>
+                <button onclick="closeModal('loginModal')" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form class="space-y-4">
+                <div>
+                    <label for="loginEmail" class="block text-sm font-medium text-gray-700 mb-1">ইমেইল</label>
+                    <input type="email" id="loginEmail" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="loginPassword" class="block text-sm font-medium text-gray-700 mb-1">পাসওয়ার্ড</label>
+                    <input type="password" id="loginPassword" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <button type="button" onclick="loginUser()" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">লগইন</button>
+            </form>
+            <div class="mt-4 text-center">
+                <p class="text-sm">অ্যাকাউন্ট নেই? <button onclick="toggleModal('registerModal'); closeModal('loginModal')" class="text-blue-600 font-medium">রেজিস্টার করুন</button></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div id="registerModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">রেজিস্টার</h3>
+                <button onclick="closeModal('registerModal')" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form class="space-y-4">
+                <div>
+                    <label for="registerName" class="block text-sm font-medium text-gray-700 mb-1">নাম</label>
+                    <input type="text" id="registerName" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="registerEmail" class="block text-sm font-medium text-gray-700 mb-1">ইমেইল</label>
+                    <input type="email" id="registerEmail" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="registerPhone" class="block text-sm font-medium text-gray-700 mb-1">মোবাইল নম্বর</label>
+                    <input type="tel" id="registerPhone" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="registerPassword" class="block text-sm font-medium text-gray-700 mb-1">পাসওয়ার্ড</label>
+                    <input type="password" id="registerPassword" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="flex space-x-4">
+                    <button type="button" onclick="registerUser('buyer')" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">সেবা গ্রহীতা</button>
+                    <button type="button" onclick="registerUser('provider')" class="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors">সেবা প্রদানকারী</button>
+                </div>
+            </form>
+            <div class="mt-4 text-center">
+                <p class="text-sm">ইতিমধ্যে অ্যাকাউন্ট আছে? <button onclick="toggleModal('loginModal'); closeModal('registerModal')" class="text-blue-600 font-medium">লগইন করুন</button></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Provider Profile Modal -->
+    <div id="providerModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden overflow-y-auto">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md max-h-screen overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold" id="providerName">প্রোভাইডার নাম</h3>
+                <button onclick="closeModal('providerModal')" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="flex items-center mb-4">
+                <div class="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                    <i class="fas fa-user text-gray-500 text-2xl"></i>
+                </div>
+                <div class="ml-4">
+                    <div id="providerRating" class="flex items-center">
+                        <i class="fas fa-star text-yellow-400"></i> 4.5 (24 reviews)
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        <i class="fas fa-eye mr-1"></i> <span id="providerViews">120</span> views
+                    </div>
+                </div>
+            </div>
+            <div class="mb-4">
+                <h4 class="font-bold mb-2">সেবা সমূহ</h4>
+                <p id="providerServices" class="text-gray-700">ইলেকট্রিশিয়ান, প্লাম্বার, এসি সার্ভিস</p>
+            </div>
+            <div class="mb-4">
+                <h4 class="font-bold mb-2">বিবরণ</h4>
+                <p id="providerDescription" class="text-gray-700">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam in dui mauris. Vivamus hendrerit arcu sed erat molestie vehicula.</p>
+            </div>
+            <div class="mb-6">
+                <h4 class="font-bold mb-2">যোগাযোগ</h4>
+                <div id="providerContactButtons" class="grid grid-cols-2 gap-3">
+                    <button class="bg-green-500 text-white px-4 py-2 rounded-lg flex items-center">
+                        <i class="fas fa-phone mr-2"></i> Call
+                    </button>
+                    <button class="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center">
+                        <i class="fas fa-envelope mr-2"></i> Message
+                    </button>
+                    <button class="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center">
+                        <i class="fab fa-whatsapp mr-2"></i> WhatsApp
+                    </button>
+                </div>
+            </div>
+            <div>
+                <h4 class="font-bold mb-2">রিভিউ সমূহ</h4>
+                <div class="space-y-3">
+                    <div class="bg-gray-100 p-3 rounded-lg">
+                        <div class="flex justify-between">
+                            <span class="font-medium">রাহুল ইসলাম</span>
+                            <div class="flex items-center">
+                                <i class="fas fa-star text-yellow-400 mr-1"></i>
+                                <span>5.0</span>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-700 mt-1">ভালো কাজ করেছেন, সময়মতো এসেছেন এবং সঠিকভাবে কাজ শেষ করেছেন।</p>
+                    </div>
+                    <div class="bg-gray-100 p-3 rounded-lg">
+                        <div class="flex justify-between">
+                            <span class="font-medium">সুমাইয়া আক্তার</span>
+                            <div class="flex items-center">
+                                <i class="fas fa-star text-yellow-400 mr-1"></i>
+                                <span>4.0</span>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-700 mt-1">কাজ ভালো, কিন্তু একটু দেরি করে এসেছিলেন।</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Profile Modal -->
+    <div id="profileModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">প্রোফাইল</h3>
+                <button onclick="closeModal('profileModal')" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="flex items-center mb-6">
+                <div class="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                    <i class="fas fa-user text-gray-500 text-2xl"></i>
+                </div>
+                <div class="ml-4">
+                    <h4 class="font-bold" id="profileName">নাম</h4>
+                    <p class="text-gray-600 text-sm" id="profileEmail">ইমেইল</p>
+                </div>
+            </div>
+            <div class="space-y-4">
+                <button class="w-full text-left px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
+                    <i class="fas fa-user-edit mr-2"></i> প্রোফাইল এডিট
+                </button>
+                <button class="w-full text-left px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
+                    <i class="fas fa-history mr-2"></i> ইতিহাস
+                </button>
+                <button class="w-full text-left px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
+                    <i class="fas fa-cog mr-2"></i> সেটিংস
+                </button>
+                <button onclick="logoutUser()" class="w-full text-left px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200">
+                    <i class="fas fa-sign-out-alt mr-2"></i> লগআউট
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
