@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>সেবা খুঁজুন - আপনার প্রয়োজনীয় সেবা খুঁজে নিন</title>
+    <title>Admin Panel - সেবা খুঁজুন</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
-        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, doc, setDoc, updateDoc, getDoc, query, where } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js";
+        import { getFirestore, collection, getDocs, doc, updateDoc, deleteDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAjMuTTJtsvr5i9xAqzQuULciJrEkUCtgg",
@@ -27,546 +27,1125 @@
 
         // Global variables
         let currentUser = null;
-        let isLoggedIn = false;
-        let userType = null;
+        let isAdmin = false;
 
-        // Auth state observer
-        onAuthStateChanged(auth, (user) => {
+        // Auth state listener
+        onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
-                isLoggedIn = true;
-                // Check user type
-                getDoc(doc(db, "users", user.uid)).then((docSnap) => {
-                    if (docSnap.exists()) {
-                        userType = docSnap.data().type;
-                        updateUI();
+                const userDoc = await getDoc(doc(db, "users", user.uid));
+                
+                if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().role === 'provider')) {
+                    isAdmin = userDoc.data().role === 'admin';
+                    document.getElementById('loginBtn').classList.add('hidden');
+                    document.getElementById('logoutBtn').classList.remove('hidden');
+                    
+                    if (isAdmin) {
+                        document.getElementById('adminNav').classList.remove('hidden');
+                        loadDashboardStats();
+                        loadUsers();
+                        loadProviders();
+                        loadCategories();
+                        loadServices();
+                        loadBanners();
+                        loadReviews();
+                    } else {
+                        document.getElementById('providerNav').classList.remove('hidden');
+                        loadProviderDashboard(user.uid);
                     }
-                });
+                } else {
+                    window.location.href = 'index.html';
+                }
             } else {
-                currentUser = null;
-                isLoggedIn = false;
-                userType = null;
-                updateUI();
+                window.location.href = 'index.html#login';
             }
         });
-
-        // Update UI based on auth state
-        function updateUI() {
-            const loginBtn = document.getElementById('loginBtn');
-            const logoutBtn = document.getElementById('logoutBtn');
-            const registerBtn = document.getElementById('registerBtn');
-            const providerBtn = document.getElementById('providerBtn');
-            const profileBtn = document.getElementById('profileBtn');
-
-            if (isLoggedIn) {
-                loginBtn.classList.add('hidden');
-                registerBtn.classList.add('hidden');
-                logoutBtn.classList.remove('hidden');
-                profileBtn.classList.remove('hidden');
-                
-                if (userType === 'provider') {
-                    providerBtn.classList.remove('hidden');
-                } else {
-                    providerBtn.classList.add('hidden');
-                }
-            } else {
-                loginBtn.classList.remove('hidden');
-                registerBtn.classList.remove('hidden');
-                logoutBtn.classList.add('hidden');
-                profileBtn.classList.add('hidden');
-                providerBtn.classList.add('hidden');
-            }
-        }
-
-        // Register functions
-        window.registerUser = async (type) => {
-            const email = document.getElementById('registerEmail').value;
-            const password = document.getElementById('registerPassword').value;
-            const phone = document.getElementById('registerPhone').value;
-            const name = document.getElementById('registerName').value;
-
-            try {
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                await setDoc(doc(db, "users", userCredential.user.uid), {
-                    name: name,
-                    email: email,
-                    phone: phone,
-                    type: type,
-                    createdAt: new Date()
-                });
-
-                if (type === 'provider') {
-                    await setDoc(doc(db, "providers", userCredential.user.uid), {
-                        name: name,
-                        email: email,
-                        phone: phone,
-                        verified: false,
-                        services: [],
-                        rating: 0,
-                        reviews: [],
-                        profileViews: 0,
-                        contactClicks: 0
-                    });
-                } else {
-                    await setDoc(doc(db, "buyers", userCredential.user.uid), {
-                        name: name,
-                        email: email,
-                        phone: phone
-                    });
-                }
-
-                alert('Registration successful!');
-                document.getElementById('registerModal').classList.add('hidden');
-            } catch (error) {
-                alert(error.message);
-            }
-        };
-
-        // Login function
-        window.loginUser = async () => {
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-
-            try {
-                await signInWithEmailAndPassword(auth, email, password);
-                document.getElementById('loginModal').classList.add('hidden');
-            } catch (error) {
-                alert(error.message);
-            }
-        };
 
         // Logout function
         window.logoutUser = async () => {
             try {
                 await signOut(auth);
+                window.location.href = 'index.html';
             } catch (error) {
-                alert(error.message);
+                showNotification(error.message, 'error');
+            }
+        };
+
+        // Notification function
+        function showNotification(message, type) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `fixed top-4 right-4 px-4 py-2 rounded-md shadow-lg text-white ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+            notification.classList.remove('hidden');
+            
+            setTimeout(() => {
+                notification.classList.add('hidden');
+            }, 3000);
+        }
+
+        // Load dashboard stats
+        async function loadDashboardStats() {
+            try {
+                // Users count
+                const usersSnapshot = await getDocs(collection(db, "users"));
+                document.getElementById('usersCount').textContent = usersSnapshot.size;
+                
+                // Providers count
+                const providersSnapshot = await getDocs(collection(db, "providers"));
+                document.getElementById('providersCount').textContent = providersSnapshot.size;
+                
+                // Categories count
+                const categoriesSnapshot = await getDocs(collection(db, "categories"));
+                document.getElementById('categoriesCount').textContent = categoriesSnapshot.size;
+                
+                // Services count
+                const servicesSnapshot = await getDocs(collection(db, "services"));
+                document.getElementById('servicesCount').textContent = servicesSnapshot.size;
+            } catch (error) {
+                console.error("Error loading dashboard stats: ", error);
+            }
+        }
+
+        // Load users
+        async function loadUsers() {
+            const usersTable = document.getElementById('usersTable').getElementsByTagName('tbody')[0];
+            usersTable.innerHTML = '<tr><td colspan="5" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></td></tr>';
+            
+            try {
+                const querySnapshot = await getDocs(collection(db, "users"));
+                usersTable.innerHTML = '';
+                
+                if (querySnapshot.empty) {
+                    usersTable.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-gray-500">No users found</td></tr>';
+                    return;
+                }
+                
+                querySnapshot.forEach((doc) => {
+                    const user = doc.data();
+                    const row = usersTable.insertRow();
+                    row.innerHTML = `
+                        <td class="px-4 py-2">${user.name || 'N/A'}</td>
+                        <td class="px-4 py-2">${user.email}</td>
+                        <td class="px-4 py-2">${user.phone || 'N/A'}</td>
+                        <td class="px-4 py-2">${user.role}</td>
+                        <td class="px-4 py-2">${new Date(user.createdAt?.seconds * 1000).toLocaleDateString()}</td>
+                    `;
+                });
+            } catch (error) {
+                usersTable.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-red-500">Error loading users</td></tr>';
+                console.error("Error loading users: ", error);
+            }
+        }
+
+        // Load providers
+        async function loadProviders() {
+            const providersTable = document.getElementById('providersTable').getElementsByTagName('tbody')[0];
+            providersTable.innerHTML = '<tr><td colspan="7" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></td></tr>';
+            
+            try {
+                const querySnapshot = await getDocs(collection(db, "providers"));
+                providersTable.innerHTML = '';
+                
+                if (querySnapshot.empty) {
+                    providersTable.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-500">No providers found</td></tr>';
+                    return;
+                }
+                
+                querySnapshot.forEach(async (doc) => {
+                    const provider = doc.data();
+                    const userDoc = await getDoc(doc(db, "users", provider.userId));
+                    const userData = userDoc.data();
+                    
+                    const row = providersTable.insertRow();
+                    row.innerHTML = `
+                        <td class="px-4 py-2">${provider.name}</td>
+                        <td class="px-4 py-2">${provider.phone}</td>
+                        <td class="px-4 py-2">${provider.services?.length || 0}</td>
+                        <td class="px-4 py-2">${provider.profileViews || 0}</td>
+                        <td class="px-4 py-2">${provider.contactClicks || 0}</td>
+                        <td class="px-4 py-2">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${provider.verified ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                                ${provider.verified ? 'Verified' : 'Unverified'}
+                            </span>
+                        </td>
+                        <td class="px-4 py-2">
+                            <button onclick="toggleProviderVerification('${doc.id}', ${!provider.verified})" class="text-blue-500 hover:text-blue-700 mr-2">
+                                ${provider.verified ? 'Unverify' : 'Verify'}
+                            </button>
+                            <button onclick="toggleProviderStatus('${doc.id}', ${provider.banned !== true})" class="${provider.banned ? 'text-green-500 hover:text-green-700' : 'text-red-500 hover:text-red-700'}">
+                                ${provider.banned ? 'Unban' : 'Ban'}
+                            </button>
+                        </td>
+                    `;
+                });
+            } catch (error) {
+                providersTable.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-red-500">Error loading providers</td></tr>';
+                console.error("Error loading providers: ", error);
+            }
+        }
+
+        // Toggle provider verification
+        window.toggleProviderVerification = async (providerId, verify) => {
+            try {
+                await updateDoc(doc(db, "providers", providerId), {
+                    verified: verify
+                });
+                showNotification(`Provider ${verify ? 'verified' : 'unverified'} successfully`, 'success');
+                loadProviders();
+            } catch (error) {
+                showNotification(error.message, 'error');
+            }
+        };
+
+        // Toggle provider status
+        window.toggleProviderStatus = async (providerId, ban) => {
+            try {
+                await updateDoc(doc(db, "providers", providerId), {
+                    banned: ban
+                });
+                showNotification(`Provider ${ban ? 'banned' : 'unbanned'} successfully`, 'success');
+                loadProviders();
+            } catch (error) {
+                showNotification(error.message, 'error');
             }
         };
 
         // Load categories
-        window.loadCategories = async () => {
-            const categoriesContainer = document.getElementById('categories');
-            const querySnapshot = await getDocs(collection(db, "categories"));
+        async function loadCategories() {
+            const categoriesTable = document.getElementById('categoriesTable').getElementsByTagName('tbody')[0];
+            categoriesTable.innerHTML = '<tr><td colspan="4" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></td></tr>';
             
-            categoriesContainer.innerHTML = '';
-            querySnapshot.forEach((doc) => {
-                const category = doc.data();
-                categoriesContainer.innerHTML += `
-                    <div class="bg-white rounded-lg shadow-md p-4 cursor-pointer hover:shadow-lg transition-shadow">
-                        <div class="text-center">
-                            <i class="${category.icon} text-3xl text-blue-500 mb-2"></i>
-                            <h3 class="font-semibold">${category.name}</h3>
-                        </div>
-                    </div>
-                `;
-            });
-        };
+            try {
+                const querySnapshot = await getDocs(collection(db, "categories"));
+                categoriesTable.innerHTML = '';
+                
+                if (querySnapshot.empty) {
+                    categoriesTable.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">No categories found</td></tr>';
+                    return;
+                }
+                
+                querySnapshot.forEach((doc) => {
+                    const category = doc.data();
+                    const row = categoriesTable.insertRow();
+                    row.innerHTML = `
+                        <td class="px-4 py-2">${category.name}</td>
+                        <td class="px-4 py-2"><i class="${category.icon}"></i></td>
+                        <td class="px-4 py-2">${new Date(category.createdAt?.seconds * 1000).toLocaleDateString()}</td>
+                        <td class="px-4 py-2">
+                            <button onclick="editCategory('${doc.id}', '${category.name}', '${category.icon}')" class="text-blue-500 hover:text-blue-700 mr-2">
+                                Edit
+                            </button>
+                            <button onclick="deleteCategory('${doc.id}')" class="text-red-500 hover:text-red-700">
+                                Delete
+                            </button>
+                        </td>
+                    `;
+                });
+            } catch (error) {
+                categoriesTable.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-red-500">Error loading categories</td></tr>';
+                console.error("Error loading categories: ", error);
+            }
+        }
 
-        // Load popular services
-        window.loadPopularServices = async () => {
-            const servicesContainer = document.getElementById('popularServices');
-            const q = query(collection(db, "providers"), where("verified", "==", true));
-            const querySnapshot = await getDocs(q);
+        // Add/edit category
+        window.saveCategory = async (e) => {
+            e.preventDefault();
+            const categoryId = document.getElementById('categoryId').value;
+            const name = document.getElementById('categoryName').value;
+            const icon = document.getElementById('categoryIcon').value;
             
-            servicesContainer.innerHTML = '';
-            querySnapshot.forEach((doc) => {
-                const provider = doc.data();
-                servicesContainer.innerHTML += `
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden">
-                        <div class="p-4">
-                            <div class="flex items-center mb-3">
-                                <div class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                                    ${provider.photoURL ? `<img src="${provider.photoURL}" alt="${provider.name}" class="w-full h-full object-cover">` : 
-                                    `<i class="fas fa-user text-gray-500 text-xl"></i>`}
-                                </div>
-                                <div class="ml-3">
-                                    <h3 class="font-semibold">${provider.name}</h3>
-                                    ${provider.verified ? `<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Verified</span>` : ''}
-                                </div>
-                            </div>
-                            <p class="text-gray-600 text-sm mb-3">${provider.services.join(', ')}</p>
-                            <div class="flex justify-between items-center">
-                                <div class="flex items-center">
-                                    <i class="fas fa-star text-yellow-400 mr-1"></i>
-                                    <span>${provider.rating.toFixed(1)}</span>
-                                </div>
-                                <button onclick="viewProvider('${doc.id}')" class="text-blue-500 text-sm font-medium">View Profile</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-        };
-
-        // View provider profile
-        window.viewProvider = async (providerId) => {
-            const providerDoc = await getDoc(doc(db, "providers", providerId));
-            if (providerDoc.exists()) {
-                const provider = providerDoc.data();
-                const providerModal = document.getElementById('providerModal');
+            try {
+                if (categoryId) {
+                    // Edit existing category
+                    await updateDoc(doc(db, "categories", categoryId), {
+                        name: name,
+                        icon: icon,
+                        updatedAt: new Date()
+                    });
+                    showNotification('Category updated successfully', 'success');
+                } else {
+                    // Add new category
+                    await addDoc(collection(db, "categories"), {
+                        name: name,
+                        icon: icon,
+                        createdAt: new Date()
+                    });
+                    showNotification('Category added successfully', 'success');
+                }
                 
-                // Update view count
-                await updateDoc(doc(db, "providers", providerId), {
-                    profileViews: (provider.profileViews || 0) + 1
-                });
+                document.getElementById('categoryForm').reset();
+                document.getElementById('categoryModal').classList.add('hidden');
+                loadCategories();
+            } catch (error) {
+                showNotification(error.message, 'error');
+            }
+        };
 
-                // Populate modal
-                document.getElementById('providerName').textContent = provider.name;
-                document.getElementById('providerRating').innerHTML = `
-                    <i class="fas fa-star text-yellow-400"></i> ${provider.rating.toFixed(1)} (${provider.reviews.length} reviews)
-                `;
-                document.getElementById('providerServices').textContent = provider.services.join(', ');
-                document.getElementById('providerDescription').textContent = provider.description || 'No description provided';
-                document.getElementById('providerViews').textContent = provider.profileViews || 0;
+        // Edit category
+        window.editCategory = (id, name, icon) => {
+            document.getElementById('categoryId').value = id;
+            document.getElementById('categoryName').value = name;
+            document.getElementById('categoryIcon').value = icon;
+            document.getElementById('categoryModal').classList.remove('hidden');
+        };
+
+        // Delete category
+        window.deleteCategory = async (id) => {
+            if (confirm('Are you sure you want to delete this category?')) {
+                try {
+                    await deleteDoc(doc(db, "categories", id));
+                    showNotification('Category deleted successfully', 'success');
+                    loadCategories();
+                } catch (error) {
+                    showNotification(error.message, 'error');
+                }
+            }
+        };
+
+        // Load services
+        async function loadServices() {
+            const servicesTable = document.getElementById('servicesTable').getElementsByTagName('tbody')[0];
+            servicesTable.innerHTML = '<tr><td colspan="6" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></td></tr>';
+            
+            try {
+                const querySnapshot = await getDocs(collection(db, "services"));
+                servicesTable.innerHTML = '';
                 
-                // Contact buttons
-                const contactButtons = document.getElementById('providerContactButtons');
-                contactButtons.innerHTML = `
-                    <button onclick="contactProvider('${providerId}', 'call')" class="bg-green-500 text-white px-4 py-2 rounded-lg flex items-center ${!isLoggedIn ? 'opacity-50 cursor-not-allowed' : ''}">
-                        <i class="fas fa-phone mr-2"></i> Call
-                    </button>
-                    <button onclick="contactProvider('${providerId}', 'message')" class="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center ${!isLoggedIn ? 'opacity-50 cursor-not-allowed' : ''}">
-                        <i class="fas fa-envelope mr-2"></i> Message
-                    </button>
-                    <button onclick="contactProvider('${providerId}', 'whatsapp')" class="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center ${!isLoggedIn ? 'opacity-50 cursor-not-allowed' : ''}">
-                        <i class="fab fa-whatsapp mr-2"></i> WhatsApp
-                    </button>
-                `;
-
-                providerModal.classList.remove('hidden');
-            }
-        };
-
-        // Contact provider
-        window.contactProvider = async (providerId, method) => {
-            if (!isLoggedIn) {
-                alert('Please login to contact service providers');
-                document.getElementById('loginModal').classList.remove('hidden');
-                return;
-            }
-
-            // Update contact clicks
-            const providerDoc = await getDoc(doc(db, "providers", providerId));
-            if (providerDoc.exists()) {
-                const provider = providerDoc.data();
-                await updateDoc(doc(db, "providers", providerId), {
-                    contactClicks: (provider.contactClicks || 0) + 1
+                if (querySnapshot.empty) {
+                    servicesTable.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-gray-500">No services found</td></tr>';
+                    return;
+                }
+                
+                querySnapshot.forEach(async (doc) => {
+                    const service = doc.data();
+                    const categoryDoc = await getDoc(doc(db, "categories", service.categoryId));
+                    const categoryName = categoryDoc.exists() ? categoryDoc.data().name : 'N/A';
+                    
+                    const row = servicesTable.insertRow();
+                    row.innerHTML = `
+                        <td class="px-4 py-2">${service.name}</td>
+                        <td class="px-4 py-2">${categoryName}</td>
+                        <td class="px-4 py-2">${service.price || 'N/A'}</td>
+                        <td class="px-4 py-2">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                ${service.rating ? service.rating.toFixed(1) + ' ★' : 'No ratings'}
+                            </span>
+                        </td>
+                        <td class="px-4 py-2">${new Date(service.createdAt?.seconds * 1000).toLocaleDateString()}</td>
+                        <td class="px-4 py-2">
+                            <button onclick="deleteService('${doc.id}')" class="text-red-500 hover:text-red-700">
+                                Delete
+                            </button>
+                        </td>
+                    `;
                 });
+            } catch (error) {
+                servicesTable.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-red-500">Error loading services</td></tr>';
+                console.error("Error loading services: ", error);
             }
+        }
 
-            // Simulate contact action
-            alert(`You have chosen to contact via ${method}. In a real app, this would initiate the ${method} action.`);
+        // Delete service
+        window.deleteService = async (id) => {
+            if (confirm('Are you sure you want to delete this service?')) {
+                try {
+                    await deleteDoc(doc(db, "services", id));
+                    showNotification('Service deleted successfully', 'success');
+                    loadServices();
+                } catch (error) {
+                    showNotification(error.message, 'error');
+                }
+            }
         };
 
-        // Close modal
-        window.closeModal = (modalId) => {
-            document.getElementById(modalId).classList.add('hidden');
+        // Load banners
+        async function loadBanners() {
+            const bannersTable = document.getElementById('bannersTable').getElementsByTagName('tbody')[0];
+            bannersTable.innerHTML = '<tr><td colspan="4" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></td></tr>';
+            
+            try {
+                const querySnapshot = await getDocs(collection(db, "banners"));
+                bannersTable.innerHTML = '';
+                
+                if (querySnapshot.empty) {
+                    bannersTable.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">No banners found</td></tr>';
+                    return;
+                }
+                
+                querySnapshot.forEach((doc) => {
+                    const banner = doc.data();
+                    const row = bannersTable.insertRow();
+                    row.innerHTML = `
+                        <td class="px-4 py-2">
+                            <img src="${banner.imageUrl}" alt="Banner" class="h-16 object-cover">
+                        </td>
+                        <td class="px-4 py-2">${banner.title || 'N/A'}</td>
+                        <td class="px-4 py-2">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${banner.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                ${banner.active ? 'Active' : 'Inactive'}
+                            </span>
+                        </td>
+                        <td class="px-4 py-2">
+                            <button onclick="editBanner('${doc.id}', '${banner.imageUrl}', '${banner.title}', ${banner.active})" class="text-blue-500 hover:text-blue-700 mr-2">
+                                Edit
+                            </button>
+                            <button onclick="deleteBanner('${doc.id}')" class="text-red-500 hover:text-red-700">
+                                Delete
+                            </button>
+                        </td>
+                    `;
+                });
+            } catch (error) {
+                bannersTable.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-red-500">Error loading banners</td></tr>';
+                console.error("Error loading banners: ", error);
+            }
+        }
+
+        // Add/edit banner
+        window.saveBanner = async (e) => {
+            e.preventDefault();
+            const bannerId = document.getElementById('bannerId').value;
+            const imageUrl = document.getElementById('bannerImageUrl').value;
+            const title = document.getElementById('bannerTitle').value;
+            const active = document.getElementById('bannerActive').checked;
+            
+            try {
+                if (bannerId) {
+                    // Edit existing banner
+                    await updateDoc(doc(db, "banners", bannerId), {
+                        imageUrl: imageUrl,
+                        title: title,
+                        active: active,
+                        updatedAt: new Date()
+                    });
+                    showNotification('Banner updated successfully', 'success');
+                } else {
+                    // Add new banner
+                    await addDoc(collection(db, "banners"), {
+                        imageUrl: imageUrl,
+                        title: title,
+                        active: active,
+                        createdAt: new Date()
+                    });
+                    showNotification('Banner added successfully', 'success');
+                }
+                
+                document.getElementById('bannerForm').reset();
+                document.getElementById('bannerModal').classList.add('hidden');
+                loadBanners();
+            } catch (error) {
+                showNotification(error.message, 'error');
+            }
         };
 
-        // Toggle modal
-        window.toggleModal = (modalId) => {
-            document.getElementById(modalId).classList.toggle('hidden');
+        // Edit banner
+        window.editBanner = (id, imageUrl, title, active) => {
+            document.getElementById('bannerId').value = id;
+            document.getElementById('bannerImageUrl').value = imageUrl;
+            document.getElementById('bannerTitle').value = title;
+            document.getElementById('bannerActive').checked = active;
+            document.getElementById('bannerModal').classList.remove('hidden');
         };
 
-        // Initialize
+        // Delete banner
+        window.deleteBanner = async (id) => {
+            if (confirm('Are you sure you want to delete this banner?')) {
+                try {
+                    await deleteDoc(doc(db, "banners", id));
+                    showNotification('Banner deleted successfully', 'success');
+                    loadBanners();
+                } catch (error) {
+                    showNotification(error.message, 'error');
+                }
+            }
+        };
+
+        // Load reviews
+        async function loadReviews() {
+            const reviewsTable = document.getElementById('reviewsTable').getElementsByTagName('tbody')[0];
+            reviewsTable.innerHTML = '<tr><td colspan="5" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></td></tr>';
+            
+            try {
+                const querySnapshot = await getDocs(collection(db, "reviews"));
+                reviewsTable.innerHTML = '';
+                
+                if (querySnapshot.empty) {
+                    reviewsTable.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-gray-500">No reviews found</td></tr>';
+                    return;
+                }
+                
+                querySnapshot.forEach(async (doc) => {
+                    const review = doc.data();
+                    const userDoc = await getDoc(doc(db, "users", review.userId));
+                    const userName = userDoc.exists() ? userDoc.data().name : 'Unknown User';
+                    const serviceDoc = await getDoc(doc(db, "services", review.serviceId));
+                    const serviceName = serviceDoc.exists() ? serviceDoc.data().name : 'Unknown Service';
+                    
+                    const row = reviewsTable.insertRow();
+                    row.innerHTML = `
+                        <td class="px-4 py-2">${userName}</td>
+                        <td class="px-4 py-2">${serviceName}</td>
+                        <td class="px-4 py-2">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                ${review.rating} ★
+                            </span>
+                        </td>
+                        <td class="px-4 py-2">${review.comment || 'No comment'}</td>
+                        <td class="px-4 py-2">
+                            <button onclick="deleteReview('${doc.id}')" class="text-red-500 hover:text-red-700">
+                                Delete
+                            </button>
+                        </td>
+                    `;
+                });
+            } catch (error) {
+                reviewsTable.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-red-500">Error loading reviews</td></tr>';
+                console.error("Error loading reviews: ", error);
+            }
+        }
+
+        // Delete review
+        window.deleteReview = async (id) => {
+            if (confirm('Are you sure you want to delete this review?')) {
+                try {
+                    await deleteDoc(doc(db, "reviews", id));
+                    showNotification('Review deleted successfully', 'success');
+                    loadReviews();
+                } catch (error) {
+                    showNotification(error.message, 'error');
+                }
+            }
+        };
+
+        // Load provider dashboard
+        async function loadProviderDashboard(providerId) {
+            try {
+                // Load provider info
+                const providerDoc = await getDoc(doc(db, "providers", providerId));
+                if (providerDoc.exists()) {
+                    const provider = providerDoc.data();
+                    document.getElementById('providerName').textContent = provider.name;
+                    document.getElementById('providerPhone').textContent = provider.phone;
+                    document.getElementById('providerVerified').textContent = provider.verified ? 'Verified' : 'Not Verified';
+                    document.getElementById('providerViews').textContent = provider.profileViews || 0;
+                    document.getElementById('providerContacts').textContent = provider.contactClicks || 0;
+                    document.getElementById('providerRating').textContent = provider.rating ? provider.rating.toFixed(1) + ' ★' : 'No ratings yet';
+                }
+                
+                // Load provider services
+                const servicesTable = document.getElementById('providerServicesTable').getElementsByTagName('tbody')[0];
+                servicesTable.innerHTML = '<tr><td colspan="5" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></td></tr>';
+                
+                const q = query(collection(db, "services"), where("providerId", "==", providerId));
+                const querySnapshot = await getDocs(q);
+                servicesTable.innerHTML = '';
+                
+                if (querySnapshot.empty) {
+                    servicesTable.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-gray-500">No services found</td></tr>';
+                    return;
+                }
+                
+                querySnapshot.forEach(async (doc) => {
+                    const service = doc.data();
+                    const categoryDoc = await getDoc(doc(db, "categories", service.categoryId));
+                    const categoryName = categoryDoc.exists() ? categoryDoc.data().name : 'N/A';
+                    
+                    const row = servicesTable.insertRow();
+                    row.innerHTML = `
+                        <td class="px-4 py-2">${service.name}</td>
+                        <td class="px-4 py-2">${categoryName}</td>
+                        <td class="px-4 py-2">${service.price || 'N/A'}</td>
+                        <td class="px-4 py-2">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                ${service.rating ? service.rating.toFixed(1) + ' ★' : 'No ratings'}
+                            </span>
+                        </td>
+                        <td class="px-4 py-2">
+                            <button onclick="editProviderService('${doc.id}')" class="text-blue-500 hover:text-blue-700 mr-2">
+                                Edit
+                            </button>
+                            <button onclick="deleteProviderService('${doc.id}')" class="text-red-500 hover:text-red-700">
+                                Delete
+                            </button>
+                        </td>
+                    `;
+                });
+                
+                // Load provider reviews
+                const reviewsTable = document.getElementById('providerReviewsTable').getElementsByTagName('tbody')[0];
+                reviewsTable.innerHTML = '<tr><td colspan="4" class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></td></tr>';
+                
+                const reviewsQuery = query(collection(db, "reviews"), where("providerId", "==", providerId));
+                const reviewsSnapshot = await getDocs(reviewsQuery);
+                reviewsTable.innerHTML = '';
+                
+                if (reviewsSnapshot.empty) {
+                    reviewsTable.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">No reviews found</td></tr>';
+                    return;
+                }
+                
+                reviewsSnapshot.forEach(async (doc) => {
+                    const review = doc.data();
+                    const userDoc = await getDoc(doc(db, "users", review.userId));
+                    const userName = userDoc.exists() ? userDoc.data().name : 'Unknown User';
+                    const serviceDoc = await getDoc(doc(db, "services", review.serviceId));
+                    const serviceName = serviceDoc.exists() ? serviceDoc.data().name : 'Unknown Service';
+                    
+                    const row = reviewsTable.insertRow();
+                    row.innerHTML = `
+                        <td class="px-4 py-2">${userName}</td>
+                        <td class="px-4 py-2">${serviceName}</td>
+                        <td class="px-4 py-2">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                ${review.rating} ★
+                            </span>
+                        </td>
+                        <td class="px-4 py-2">${review.comment || 'No comment'}</td>
+                    `;
+                });
+            } catch (error) {
+                console.error("Error loading provider dashboard: ", error);
+            }
+        }
+
+        // Initialize page
         document.addEventListener('DOMContentLoaded', () => {
-            loadCategories();
-            loadPopularServices();
+            // Handle tab switching
+            const tabs = document.querySelectorAll('[data-tab]');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const tabId = tab.getAttribute('data-tab');
+                    document.querySelectorAll('[data-tab-content]').forEach(content => {
+                        content.classList.add('hidden');
+                    });
+                    document.querySelector(`[data-tab-content="${tabId}"]`).classList.remove('hidden');
+                    
+                    tabs.forEach(t => t.classList.remove('border-blue-500', 'text-blue-600'));
+                    tab.classList.add('border-blue-500', 'text-blue-600');
+                });
+            });
+            
+            // Default to dashboard tab
+            document.querySelector('[data-tab="dashboard"]').click();
         });
     </script>
-    <style>
-        .banner {
-            background-image: url('https://via.placeholder.com/1920x600');
-            background-size: cover;
-            background-position: center;
-        }
-        .modal {
-            transition: opacity 0.3s ease;
-        }
-    </style>
 </head>
 <body class="bg-gray-100">
-    <!-- Header -->
-    <header class="bg-white shadow-sm">
-        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
-            <div class="flex items-center">
-                <h1 class="text-2xl font-bold text-blue-600">সেবা খুঁজুন</h1>
-            </div>
-            <nav class="hidden md:flex space-x-6">
-                <a href="#" class="text-gray-700 hover:text-blue-600">হোম</a>
-                <a href="#" class="text-gray-700 hover:text-blue-600">সেবা সমূহ</a>
-                <a href="#" class="text-gray-700 hover:text-blue-600">প্রোভাইডার</a>
-                <a href="#" class="text-gray-700 hover:text-blue-600">যোগাযোগ</a>
-            </nav>
-            <div class="flex items-center space-x-4">
-                <button id="loginBtn" onclick="toggleModal('loginModal')" class="bg-blue-600 text-white px-4 py-2 rounded-lg">লগইন</button>
-                <button id="registerBtn" onclick="toggleModal('registerModal')" class="border border-blue-600 text-blue-600 px-4 py-2 rounded-lg">রেজিস্টার</button>
-                <button id="providerBtn" onclick="toggleModal('providerModal')" class="bg-green-600 text-white px-4 py-2 rounded-lg hidden">প্রোভাইডার প্যানেল</button>
-                <button id="profileBtn" onclick="toggleModal('profileModal')" class="bg-gray-200 px-4 py-2 rounded-lg hidden">
-                    <i class="fas fa-user"></i>
-                </button>
-                <button id="logoutBtn" onclick="logoutUser()" class="bg-red-600 text-white px-4 py-2 rounded-lg hidden">লগআউট</button>
-            </div>
-            <button class="md:hidden text-gray-700">
-                <i class="fas fa-bars text-xl"></i>
-            </button>
-        </div>
-    </header>
+    <!-- Notification -->
+    <div id="notification" class="hidden fixed top-4 right-4 px-4 py-2 rounded-md shadow-lg text-white"></div>
 
-    <!-- Banner -->
-    <div class="banner h-64 flex items-center justify-center">
-        <div class="text-center bg-black bg-opacity-50 text-white p-6 rounded-lg">
-            <h2 class="text-3xl font-bold mb-4">আপনার প্রয়োজনীয় সেবা খুঁজে নিন</h2>
-            <div class="relative max-w-2xl mx-auto">
-                <input type="text" placeholder="সেবা নাম, লোকেশন বা ক্যাটাগরি লিখুন" class="w-full px-4 py-3 rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <button class="absolute right-2 top-2 bg-blue-600 text-white px-4 py-1 rounded-lg">
-                    <i class="fas fa-search"></i> খুঁজুন
+    <!-- Navigation -->
+    <nav class="bg-white shadow-md">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <a href="#" class="text-xl font-bold text-blue-600">সেবা খুঁজুন - Admin Panel</a>
+            <div class="flex items-center space-x-4">
+                <button id="loginBtn" class="hidden bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md">
+                    লগইন
+                </button>
+                <button id="logoutBtn" onclick="logoutUser()" class="hidden bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md">
+                    লগআউট
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Admin Navigation -->
+    <div id="adminNav" class="hidden bg-gray-800 text-white">
+        <div class="container mx-auto px-4">
+            <div class="flex overflow-x-auto">
+                <button data-tab="dashboard" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-tachometer-alt mr-2"></i> ড্যাশবোর্ড
+                </button>
+                <button data-tab="users" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-users mr-2"></i> ইউজার ম্যানেজমেন্ট
+                </button>
+                <button data-tab="providers" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-user-tie mr-2"></i> প্রোভাইডার ম্যানেজমেন্ট
+                </button>
+                <button data-tab="categories" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-tags mr-2"></i> ক্যাটাগরি ম্যানেজমেন্ট
+                </button>
+                <button data-tab="services" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-tools mr-2"></i> সেবা ম্যানেজমেন্ট
+                </button>
+                <button data-tab="banners" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-image mr-2"></i> ব্যানার ম্যানেজমেন্ট
+                </button>
+                <button data-tab="reviews" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-star mr-2"></i> রিভিউ ম্যানেজমেন্ট
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Provider Navigation -->
+    <div id="providerNav" class="hidden bg-gray-800 text-white">
+        <div class="container mx-auto px-4">
+            <div class="flex overflow-x-auto">
+                <button data-tab="providerDashboard" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-tachometer-alt mr-2"></i> ড্যাশবোর্ড
+                </button>
+                <button data-tab="providerServices" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-tools mr-2"></i> আমার সেবাসমূহ
+                </button>
+                <button data-tab="providerReviews" class="px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 whitespace-nowrap">
+                    <i class="fas fa-star mr-2"></i> আমার রিভিউ
                 </button>
             </div>
         </div>
     </div>
 
     <!-- Main Content -->
-    <main class="container mx-auto px-4 py-8">
-        <!-- Categories -->
-        <section class="mb-12">
-            <h2 class="text-2xl font-bold mb-6">ক্যাটাগরি সমূহ</h2>
-            <div id="categories" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                <!-- Categories will be loaded here -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- Admin Dashboard -->
+        <div data-tab-content="dashboard" class="hidden">
+            <h2 class="text-2xl font-bold mb-6">ড্যাশবোর্ড</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-blue-100 text-blue-600 mr-4">
+                            <i class="fas fa-users text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">মোট ইউজার</p>
+                            <h3 class="text-2xl font-bold" id="usersCount">0</h3>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-green-100 text-green-600 mr-4">
+                            <i class="fas fa-user-tie text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">মোট প্রোভাইডার</p>
+                            <h3 class="text-2xl font-bold" id="providersCount">0</h3>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-yellow-100 text-yellow-600 mr-4">
+                            <i class="fas fa-tags text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">মোট ক্যাটাগরি</p>
+                            <h3 class="text-2xl font-bold" id="categoriesCount">0</h3>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-purple-100 text-purple-600 mr-4">
+                            <i class="fas fa-tools text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">মোট সেবা</p>
+                            <h3 class="text-2xl font-bold" id="servicesCount">0</h3>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </section>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold mb-4">সাম্প্রতিক ইউজার</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full bg-white">
+                            <thead>
+                                <tr>
+                                    <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">নাম</th>
+                                    <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ইমেইল</th>
+                                    <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">রোল</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentUsersTable">
+                                <!-- Recent users will be loaded here -->
+                                <tr>
+                                    <td colspan="3" class="text-center py-4 text-gray-500">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-xl font-bold mb-4">সাম্প্রতিক সেবা</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full bg-white">
+                            <thead>
+                                <tr>
+                                    <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">নাম</th>
+                                    <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ক্যাটাগরি</th>
+                                    <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">রেটিং</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentServicesTable">
+                                <!-- Recent services will be loaded here -->
+                                <tr>
+                                    <td colspan="3" class="text-center py-4 text-gray-500">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        <!-- Popular Services -->
-        <section class="mb-12">
+        <!-- Users Management -->
+        <div data-tab-content="users" class="hidden">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-bold">জনপ্রিয় সেবা সমূহ</h2>
-                <a href="#" class="text-blue-600">সব দেখুন</a>
+                <h2 class="text-2xl font-bold">ইউজার ম্যানেজমেন্ট</h2>
             </div>
-            <div id="popularServices" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                <!-- Popular services will be loaded here -->
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full" id="usersTable">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">নাম</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ইমেইল</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ফোন</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">রোল</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">তৈরির তারিখ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Users will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
-        </section>
+        </div>
 
-        <!-- Verified Providers -->
-        <section class="mb-12">
+        <!-- Providers Management -->
+        <div data-tab-content="providers" class="hidden">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-bold">ভেরিফাইড প্রোভাইডার</h2>
-                <a href="#" class="text-blue-600">সব দেখুন</a>
+                <h2 class="text-2xl font-bold">প্রোভাইডার ম্যানেজমেন্ট</h2>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                <!-- Verified providers will be loaded here -->
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full" id="providersTable">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">নাম</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ফোন</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">সেবা</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ভিউ</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">কন্টাক্ট</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">স্ট্যাটাস</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">অ্যাকশন</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Providers will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
-        </section>
+        </div>
+
+        <!-- Categories Management -->
+        <div data-tab-content="categories" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">ক্যাটাগরি ম্যানেজমেন্ট</h2>
+                <button onclick="document.getElementById('categoryModal').classList.remove('hidden'); document.getElementById('categoryId').value = ''; document.getElementById('categoryForm').reset();" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md">
+                    <i class="fas fa-plus mr-2"></i> নতুন ক্যাটাগরি
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full" id="categoriesTable">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">নাম</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">আইকন</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">তৈরির তারিখ</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">অ্যাকশন</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Categories will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Services Management -->
+        <div data-tab-content="services" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">সেবা ম্যানেজমেন্ট</h2>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full" id="servicesTable">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">নাম</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ক্যাটাগরি</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">দাম</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">রেটিং</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">তৈরির তারিখ</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">অ্যাকশন</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Services will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Banners Management -->
+        <div data-tab-content="banners" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">ব্যানার ম্যানেজমেন্ট</h2>
+                <button onclick="document.getElementById('bannerModal').classList.remove('hidden'); document.getElementById('bannerId').value = ''; document.getElementById('bannerForm').reset();" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md">
+                    <i class="fas fa-plus mr-2"></i> নতুন ব্যানার
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full" id="bannersTable">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ইমেজ</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">টাইটেল</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">স্ট্যাটাস</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">অ্যাকশন</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Banners will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reviews Management -->
+        <div data-tab-content="reviews" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">রিভিউ ম্যানেজমেন্ট</h2>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full" id="reviewsTable">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ইউজার</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">সেবা</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">রেটিং</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">কমেন্ট</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">অ্যাকশন</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Reviews will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Provider Dashboard -->
+        <div data-tab-content="providerDashboard" class="hidden">
+            <h2 class="text-2xl font-bold mb-6">প্রোভাইডার ড্যাশবোর্ড</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-blue-100 text-blue-600 mr-4">
+                            <i class="fas fa-user-tie text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">আপনার নাম</p>
+                            <h3 class="text-xl font-bold" id="providerName">Loading...</h3>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-green-100 text-green-600 mr-4">
+                            <i class="fas fa-phone text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">ফোন নম্বর</p>
+                            <h3 class="text-xl font-bold" id="providerPhone">Loading...</h3>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-yellow-100 text-yellow-600 mr-4">
+                            <i class="fas fa-check-circle text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">ভেরিফিকেশন স্ট্যাটাস</p>
+                            <h3 class="text-xl font-bold" id="providerVerified">Loading...</h3>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-purple-100 text-purple-600 mr-4">
+                            <i class="fas fa-eye text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">প্রোফাইল ভিউ</p>
+                            <h3 class="text-xl font-bold" id="providerViews">0</h3>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-red-100 text-red-600 mr-4">
+                            <i class="fas fa-phone-volume text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">কন্টাক্ট ক্লিক</p>
+                            <h3 class="text-xl font-bold" id="providerContacts">0</h3>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-indigo-100 text-indigo-600 mr-4">
+                            <i class="fas fa-star text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">গড় রেটিং</p>
+                            <h3 class="text-xl font-bold" id="providerRating">Loading...</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Provider Services -->
+        <div data-tab-content="providerServices" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">আমার সেবাসমূহ</h2>
+                <button onclick="document.getElementById('serviceModal').classList.remove('hidden');" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md">
+                    <i class="fas fa-plus mr-2"></i> নতুন সেবা
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full" id="providerServicesTable">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">নাম</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ক্যাটাগরি</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">দাম</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">রেটিং</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">অ্যাকশন</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Provider services will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Provider Reviews -->
+        <div data-tab-content="providerReviews" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">আমার রিভিউ</h2>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full" id="providerReviewsTable">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">ইউজার</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">সেবা</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">রেটিং</th>
+                                <th class="px-4 py-2 border-b-2 border-gray-200 bg-gray-100 text-left">কমেন্ট</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Provider reviews will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </main>
 
-    <!-- Footer -->
-    <footer class="bg-gray-800 text-white py-8">
-        <div class="container mx-auto px-4">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
-                <div>
-                    <h3 class="text-xl font-bold mb-4">সেবা খুঁজুন</h3>
-                    <p>আপনার প্রয়োজনীয় সেবা সহজেই খুঁজে নিন এবং সরাসরি যোগাযোগ করুন।</p>
-                </div>
-                <div>
-                    <h4 class="font-bold mb-4">লিংক</h4>
-                    <ul class="space-y-2">
-                        <li><a href="#" class="hover:text-blue-400">হোম</a></li>
-                        <li><a href="#" class="hover:text-blue-400">সেবা সমূহ</a></li>
-                        <li><a href="#" class="hover:text-blue-400">প্রোভাইডার</a></li>
-                        <li><a href="#" class="hover:text-blue-400">যোগাযোগ</a></li>
-                    </ul>
-                </div>
-                <div>
-                    <h4 class="font-bold mb-4">সেবা</h4>
-                    <ul class="space-y-2">
-                        <li><a href="#" class="hover:text-blue-400">সেবা খুঁজুন</a></li>
-                        <li><a href="#" class="hover:text-blue-400">প্রোভাইডার হন</a></li>
-                        <li><a href="#" class="hover:text-blue-400">সাহায্য</a></li>
-                    </ul>
-                </div>
-                <div>
-                    <h4 class="font-bold mb-4">যোগাযোগ</h4>
-                    <ul class="space-y-2">
-                        <li><i class="fas fa-phone mr-2"></i> +880 1234 567890</li>
-                        <li><i class="fas fa-envelope mr-2"></i> info@shebakhujun.com</li>
-                        <li><i class="fas fa-map-marker-alt mr-2"></i> ঢাকা, বাংলাদেশ</li>
-                    </ul>
-                </div>
-            </div>
-            <div class="border-t border-gray-700 mt-8 pt-6 text-center">
-                <p>&copy; 2023 সেবা খুঁজুন. সকল স্বত্ব সংরক্ষিত।</p>
-            </div>
-        </div>
-    </footer>
-
-    <!-- Login Modal -->
-    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <!-- Category Modal -->
+    <div id="categoryModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
         <div class="bg-white rounded-lg p-6 w-full max-w-md">
             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold">লগইন</h3>
-                <button onclick="closeModal('loginModal')" class="text-gray-500 hover:text-gray-700">
+                <h2 class="text-xl font-bold" id="categoryModalTitle">নতুন ক্যাটাগরি</h2>
+                <button onclick="document.getElementById('categoryModal').classList.add('hidden')" class="text-gray-500 hover:text-gray-700">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <form class="space-y-4">
-                <div>
-                    <label for="loginEmail" class="block text-sm font-medium text-gray-700 mb-1">ইমেইল</label>
-                    <input type="email" id="loginEmail" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <form id="categoryForm" onsubmit="saveCategory(event)">
+                <input type="hidden" id="categoryId">
+                <div class="mb-4">
+                    <label for="categoryName" class="block text-gray-700 mb-2">ক্যাটাগরি নাম</label>
+                    <input type="text" id="categoryName" required class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
-                <div>
-                    <label for="loginPassword" class="block text-sm font-medium text-gray-700 mb-1">পাসওয়ার্ড</label>
-                    <input type="password" id="loginPassword" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <div class="mb-4">
+                    <label for="categoryIcon" class="block text-gray-700 mb-2">আইকন ক্লাস (Font Awesome)</label>
+                    <input type="text" id="categoryIcon" required class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="fas fa-tools">
                 </div>
-                <button type="button" onclick="loginUser()" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">লগইন</button>
+                <button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md">
+                    সেভ করুন
+                </button>
             </form>
-            <div class="mt-4 text-center">
-                <p class="text-sm">অ্যাকাউন্ট নেই? <button onclick="toggleModal('registerModal'); closeModal('loginModal')" class="text-blue-600 font-medium">রেজিস্টার করুন</button></p>
-            </div>
         </div>
     </div>
 
-    <!-- Register Modal -->
-    <div id="registerModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <!-- Banner Modal -->
+    <div id="bannerModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
         <div class="bg-white rounded-lg p-6 w-full max-w-md">
             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold">রেজিস্টার</h3>
-                <button onclick="closeModal('registerModal')" class="text-gray-500 hover:text-gray-700">
+                <h2 class="text-xl font-bold" id="bannerModalTitle">নতুন ব্যানার</h2>
+                <button onclick="document.getElementById('bannerModal').classList.add('hidden')" class="text-gray-500 hover:text-gray-700">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <form class="space-y-4">
-                <div>
-                    <label for="registerName" class="block text-sm font-medium text-gray-700 mb-1">নাম</label>
-                    <input type="text" id="registerName" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <form id="bannerForm" onsubmit="saveBanner(event)">
+                <input type="hidden" id="bannerId">
+                <div class="mb-4">
+                    <label for="bannerImageUrl" class="block text-gray-700 mb-2">ইমেজ URL</label>
+                    <input type="url" id="bannerImageUrl" required class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
-                <div>
-                    <label for="registerEmail" class="block text-sm font-medium text-gray-700 mb-1">ইমেইল</label>
-                    <input type="email" id="registerEmail" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <div class="mb-4">
+                    <label for="bannerTitle" class="block text-gray-700 mb-2">টাইটেল (ঐচ্ছিক)</label>
+                    <input type="text" id="bannerTitle" class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
-                <div>
-                    <label for="registerPhone" class="block text-sm font-medium text-gray-700 mb-1">মোবাইল নম্বর</label>
-                    <input type="tel" id="registerPhone" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <div class="mb-4 flex items-center">
+                    <input type="checkbox" id="bannerActive" class="mr-2">
+                    <label for="bannerActive" class="text-gray-700">একটিভ</label>
                 </div>
-                <div>
-                    <label for="registerPassword" class="block text-sm font-medium text-gray-700 mb-1">পাসওয়ার্ড</label>
-                    <input type="password" id="registerPassword" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                </div>
-                <div class="flex space-x-4">
-                    <button type="button" onclick="registerUser('buyer')" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">সেবা গ্রহীতা</button>
-                    <button type="button" onclick="registerUser('provider')" class="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors">সেবা প্রদানকারী</button>
-                </div>
+                <button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md">
+                    সেভ করুন
+                </button>
             </form>
-            <div class="mt-4 text-center">
-                <p class="text-sm">ইতিমধ্যে অ্যাকাউন্ট আছে? <button onclick="toggleModal('loginModal'); closeModal('registerModal')" class="text-blue-600 font-medium">লগইন করুন</button></p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Provider Profile Modal -->
-    <div id="providerModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden overflow-y-auto">
-        <div class="bg-white rounded-lg p-6 w-full max-w-md max-h-screen overflow-y-auto">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold" id="providerName">প্রোভাইডার নাম</h3>
-                <button onclick="closeModal('providerModal')" class="text-gray-500 hover:text-gray-700">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="flex items-center mb-4">
-                <div class="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                    <i class="fas fa-user text-gray-500 text-2xl"></i>
-                </div>
-                <div class="ml-4">
-                    <div id="providerRating" class="flex items-center">
-                        <i class="fas fa-star text-yellow-400"></i> 4.5 (24 reviews)
-                    </div>
-                    <div class="text-sm text-gray-600">
-                        <i class="fas fa-eye mr-1"></i> <span id="providerViews">120</span> views
-                    </div>
-                </div>
-            </div>
-            <div class="mb-4">
-                <h4 class="font-bold mb-2">সেবা সমূহ</h4>
-                <p id="providerServices" class="text-gray-700">ইলেকট্রিশিয়ান, প্লাম্বার, এসি সার্ভিস</p>
-            </div>
-            <div class="mb-4">
-                <h4 class="font-bold mb-2">বিবরণ</h4>
-                <p id="providerDescription" class="text-gray-700">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam in dui mauris. Vivamus hendrerit arcu sed erat molestie vehicula.</p>
-            </div>
-            <div class="mb-6">
-                <h4 class="font-bold mb-2">যোগাযোগ</h4>
-                <div id="providerContactButtons" class="grid grid-cols-2 gap-3">
-                    <button class="bg-green-500 text-white px-4 py-2 rounded-lg flex items-center">
-                        <i class="fas fa-phone mr-2"></i> Call
-                    </button>
-                    <button class="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center">
-                        <i class="fas fa-envelope mr-2"></i> Message
-                    </button>
-                    <button class="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center">
-                        <i class="fab fa-whatsapp mr-2"></i> WhatsApp
-                    </button>
-                </div>
-            </div>
-            <div>
-                <h4 class="font-bold mb-2">রিভিউ সমূহ</h4>
-                <div class="space-y-3">
-                    <div class="bg-gray-100 p-3 rounded-lg">
-                        <div class="flex justify-between">
-                            <span class="font-medium">রাহুল ইসলাম</span>
-                            <div class="flex items-center">
-                                <i class="fas fa-star text-yellow-400 mr-1"></i>
-                                <span>5.0</span>
-                            </div>
-                        </div>
-                        <p class="text-sm text-gray-700 mt-1">ভালো কাজ করেছেন, সময়মতো এসেছেন এবং সঠিকভাবে কাজ শেষ করেছেন।</p>
-                    </div>
-                    <div class="bg-gray-100 p-3 rounded-lg">
-                        <div class="flex justify-between">
-                            <span class="font-medium">সুমাইয়া আক্তার</span>
-                            <div class="flex items-center">
-                                <i class="fas fa-star text-yellow-400 mr-1"></i>
-                                <span>4.0</span>
-                            </div>
-                        </div>
-                        <p class="text-sm text-gray-700 mt-1">কাজ ভালো, কিন্তু একটু দেরি করে এসেছিলেন।</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- User Profile Modal -->
-    <div id="profileModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-lg p-6 w-full max-w-md">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold">প্রোফাইল</h3>
-                <button onclick="closeModal('profileModal')" class="text-gray-500 hover:text-gray-700">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="flex items-center mb-6">
-                <div class="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                    <i class="fas fa-user text-gray-500 text-2xl"></i>
-                </div>
-                <div class="ml-4">
-                    <h4 class="font-bold" id="profileName">নাম</h4>
-                    <p class="text-gray-600 text-sm" id="profileEmail">ইমেইল</p>
-                </div>
-            </div>
-            <div class="space-y-4">
-                <button class="w-full text-left px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
-                    <i class="fas fa-user-edit mr-2"></i> প্রোফাইল এডিট
-                </button>
-                <button class="w-full text-left px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
-                    <i class="fas fa-history mr-2"></i> ইতিহাস
-                </button>
-                <button class="w-full text-left px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
-                    <i class="fas fa-cog mr-2"></i> সেটিংস
-                </button>
-                <button onclick="logoutUser()" class="w-full text-left px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200">
-                    <i class="fas fa-sign-out-alt mr-2"></i> লগআউট
-                </button>
-            </div>
         </div>
     </div>
 </body>
